@@ -1,0 +1,5 @@
+numpy
+pandas
+netCDF4
+ioos_qartod==0.0.3
+cf_units
