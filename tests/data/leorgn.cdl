@@ -1,0 +1,177 @@
+
+netcdf leorgn {
+dimensions:
+	feature_type_instance = 1 ;
+	time = UNLIMITED ; // (76 currently)
+	height = 1 ;
+	text = 128 ;
+variables:
+	char platform(text) ;
+		platform:imo_code = "" ;
+		platform:ioos_code = "urn:ioos:station:glos:leorgn" ;
+		platform:call_sign = "" ;
+		platform:ices_code = "" ;
+		platform:standard_name = "platform_name" ;
+		platform:long_name = "Oregon Pump Station" ;
+		platform:wmo_code = "" ;
+	int crs ;
+		crs:inverse_flattening = 298.257223563 ;
+		crs:epsg_code = "EPSG:4326" ;
+		crs:long_name = "http://www.opengis.net/def/crs/EPSG/0/4326" ;
+		crs:grid_mapping_name = "latitude_longitude" ;
+		crs:semi_major_axis = 6378137. ;
+	char feature_type_instance(text) ;
+		feature_type_instance:cf_role = "timeseries_id" ;
+		feature_type_instance:long_name = "Identifier for each feature type instance" ;
+	double time(time) ;
+		time:time_coverage_end = "2016-08-31T12:30:00+0000" ;
+		time:time_coverage_start = "2016-08-31T00:00:00+0000" ;
+		time:calendar = "gregorian" ;
+		time:units = "seconds since 1970-01-01T00:00:00Z" ;
+		time:standard_name = "time" ;
+		time:long_name = "time of measurement" ;
+		time:axis = "T" ;
+	char instrument(text) ;
+		instrument:serial_number = "" ;
+		instrument:comment = "" ;
+		instrument:calibration_date = "" ;
+		instrument:long_name = "urn:ioos:sensor:cencoos:leorgn:ysi_blue_green_algae" ;
+		instrument:make_model = "" ;
+		instrument:definition = "http://mmisw.org/ont/ioos/definition/sensorID" ;
+		instrument:standard_name = "instrument_name" ;
+	double longitude ;
+		longitude:units = "degrees_east" ;
+		longitude:standard_name = "longitude" ;
+		longitude:long_name = "sensor longitude" ;
+		longitude:axis = "X" ;
+	double latitude ;
+		latitude:units = "degrees_north" ;
+		latitude:standard_name = "latitude" ;
+		latitude:long_name = "sensor latitude" ;
+		latitude:axis = "Y" ;
+	double blue_green_algae(time) ;
+		blue_green_algae:instrument = "instrument" ;
+		blue_green_algae:nc_name = "/usr/local/glos/habs/tmp//leorgn_ysi_blue_green_algae.nc" ;
+		blue_green_algae:scale_factor = 1. ;
+		blue_green_algae:short_name = "YSI Blue Green Algae" ;
+		blue_green_algae:nodc_name = "" ;
+		blue_green_algae:_FillValue = -9999. ;
+		blue_green_algae:target = "/tmp/leorgn_ysi_blue_green_algae" ;
+		blue_green_algae:standard_name = "ysi_blue_green_algae" ;
+		blue_green_algae:add_offset = 0. ;
+		blue_green_algae:platform = "platform" ;
+		blue_green_algae:habs_name = "blue_green_algae" ;
+		blue_green_algae:keywords = "EARTH SCIENCE > BIOLOGICAL CLASSIFICATION > PLANTS > MICROALGA" ;
+		blue_green_algae:featureType = "timeSeries" ;
+		blue_green_algae:units = "rfu" ;
+		blue_green_algae:depth = 0. ;
+		blue_green_algae:keywords_vocabulary = "GCMD Earth Science Keywords. Version 5.3.3" ;
+		blue_green_algae:source = "platform/leorgn/leorgn_ysi_blue_green_algae" ;
+		blue_green_algae:long_name = "YSI Blue Green Algae" ;
+		blue_green_algae:coverage_content_type = "physicalMeasurement" ;
+		blue_green_algae:grid_mapping = "crs" ;
+		blue_green_algae:coordinates = "time latitude longitude height" ;
+	double height(height) ;
+		height:positive = "down" ;
+		height:units = "m" ;
+		height:long_name = "height of the sensor relative to sea surface" ;
+		height:standard_name = "height" ;
+		height:axis = "Z" ;
+
+// global attributes:
+		:contributor_name = "GLOS" ;
+		:instrument = "instrument" ;
+		:comment = "" ;
+		:geospatial_vertical_units = "" ;
+		:geospatial_lat_max = 41.67196 ;
+		:contributor_role = "" ;
+		:Metadata_Conventions = "Unidata Dataset Discovery v1.0" ;
+		:project = "" ;
+		:creator_name = "" ;
+		:geospatial_vertical_resolution = "" ;
+		:time_coverage_end = "" ;
+		:time_coverage_duration = "" ;
+		:date_modified = "2016831" ;
+		:geospatial_lat_units = "degrees_north" ;
+		:nodc_template_version = "NODC_NetCDF_TimeSeries_Orthogonal_Template_v1.1" ;
+		:featureType = "timeSeries" ;
+		:publisher_name = "GLOS" ;
+		:date_created = "2016831" ;
+		:time_coverage_resolution = "" ;
+		:title = "Oregon Pump Station" ;
+		:cdm_data_type = "station" ;
+		:geospatial_lon_resolution = "" ;
+		:acknowledgment = "" ;
+		:geospatial_vertical_min = "" ;
+		:standard_name_vocabulary = "NetCDF Climate and Forecast (CF) Metadata Convention Standard Name Table v26" ;
+		:publisher_email = "dmac@glos.us" ;
+		:missing_value = -9999. ;
+		:source = "" ;
+		:references = "" ;
+		:geospatial_lon_max = -83.2903 ;
+		:Conventions = "CF-1.6" ;
+		:geospatial_lat_resolution = "" ;
+		:history = "" ;
+		:metadata_link = "" ;
+		:creator_url = "" ;
+		:naming_authority = "GLOS" ;
+		:date_issued = "2016831" ;
+		:geospatial_lon_min = -83.2903 ;
+		:license = "Freely Distributed" ;
+		:institution_dods_url = "" ;
+		:geospatial_vertical_max = "" ;
+		:time_coverage_start = "" ;
+		:uuid = "" ;
+		:keywords_vocabulary = "" ;
+		:institution_url = "http://glos.us" ;
+		:id = "leorgn" ;
+		:keywords = "EARTH SCIENCE > BIOLOGICAL CLASSIFICATION > PLANTS > MICROALGA" ;
+		:platform = "platform" ;
+		:geospatial_lon_units = "degrees_east" ;
+		:sea_name = "Great Lakes" ;
+		:institution = "GLOS,leorgn, Oregon Pump Station" ;
+		:geospatial_vertical_positive = "" ;
+		:summary = "" ;
+		:publisher_url = "http://glos.us" ;
+		:creator_email = "" ;
+		:geospatial_lat_min = 41.67196 ;
+		:processing_level = "none" ;
+data:
+
+ platform = "Oregon Pump Station" ;
+
+ crs = 4326 ;
+
+ feature_type_instance = "urn:ioos:station:glos:Oregon Pump Station" ;
+
+ time = 1472601600, 1472602200, 1472602800, 1472603400, 1472604000, 
+    1472604600, 1472605200, 1472605800, 1472606400, 1472607000, 1472607600, 
+    1472608200, 1472608800, 1472609400, 1472610000, 1472610600, 1472611200, 
+    1472611800, 1472612400, 1472613000, 1472613600, 1472614200, 1472614800, 
+    1472615400, 1472616000, 1472616600, 1472617200, 1472617800, 1472618400, 
+    1472619000, 1472619600, 1472620200, 1472620800, 1472621400, 1472622000, 
+    1472622600, 1472623200, 1472623800, 1472624400, 1472625000, 1472625600, 
+    1472626200, 1472626800, 1472627400, 1472628000, 1472628600, 1472629200, 
+    1472629800, 1472630400, 1472631000, 1472631600, 1472632200, 1472632800, 
+    1472633400, 1472634000, 1472634600, 1472635200, 1472635800, 1472636400, 
+    1472637000, 1472637600, 1472638200, 1472638800, 1472639400, 1472640000, 
+    1472640600, 1472641200, 1472641800, 1472642400, 1472643000, 1472643600, 
+    1472644200, 1472644800, 1472645400, 1472646000, 1472646600 ;
+
+ instrument = "urn:ioos:sensor:cencoos:leorgn:ysi_blue_green_algae" ;
+
+ longitude = -83.2903 ;
+
+ latitude = 41.67196 ;
+
+ blue_green_algae = 0.13, 0.12, 0.13, 0.08, 0.1, 0.1, 0.11, 0.14, 0.1, 0.13, 
+    0.1, 0.12, 0.1, 0.11, 0.11, 0.09, 0.09, 0.1, 0.07, 0.12, 0.06, 0.11, 
+    0.11, 0.13, 0.04, 0.07, 0.09, 0.04, 0.12, 0.08, 0.08, 0.08, 0.1, 0.15, 
+    0.09, 0.12, 0.09, 0.14, 0.07, 0.11, 0.09, 0.1, 0.09, 0.1, 0.08, 0.09, 
+    0.04, 0.09, 0.08, 0.07, 0.01, 0.08, 0.08, 0.06, 0.1, 0.04, 0.05, 0.04, 
+    0.02, 0.05, 0.11, 0.08, 0.05, 0.07, 0.05, 0.04, 0.06, 0.05, 0.08, 0.07, 
+    0.08, 0.09, 0.08, 0.08, 0.05, 0.05 ;
+
+ height = 0 ;
+}
+
