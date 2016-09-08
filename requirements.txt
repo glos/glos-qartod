@@ -3,3 +3,4 @@ pandas
 netCDF4
 ioos_qartod==0.0.3
 cf_units
+xlrd==1.0.0

@@ -171,6 +171,7 @@ class DatasetQC(object):
         Returns a dataframe loaded from the excel config file.
         '''
         df = pd.read_excel(path, header=1)
+        self.config = df
         return df
 
     @classmethod
