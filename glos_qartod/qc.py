@@ -19,23 +19,28 @@ class DatasetQC(object):
 
     def find_geophysical_variables(self):
         '''
-        Returns a list of variable names matching the geophysical variable's
-        standard names for temperature, conductivity, density and salinity.
+        Returns a list of variables that match any variables listed in the
+        config file for this station
         '''
         variables = []
-        valid_standard_names = [
-            'sea_water_temperature',
-            'sea_water_electrical_conductivity',
-            'sea_water_density',
-            'sea_water_pressure',
-            'sea_water_practical_salinity'
-        ]
-
-        for standard_name in valid_standard_names:
-            ncvar = self.ncfile.get_variables_by_attributes(standard_name=standard_name)
-            if len(ncvar) == 1:
-                variables.append(ncvar[0].name)
+        station_name = self.find_station_name()
+        station_id = station_name.split(':')[-1]
+        local_config = self.config[self.config['station_id'] == station_id]
+        configured_variables = local_config.variable.tolist()
+        for variable in self.ncfile.variables:
+            if variable in configured_variables:
+                variables.append(variable)
         return variables
+
+    def find_station_name(self):
+        '''
+        Returns the station identifier using the ioos_code attribute
+        '''
+        platform_name = self.ncfile.platform
+        if platform_name not in self.ncfile.variables:
+            raise ValueError("Platform defined as %s but no variable matches this name" % platform_name)
+        station_id = self.ncfile.variables[platform_name].ioos_code
+        return station_id
 
     def find_ancillary_variables(self, ncvariable):
         '''
@@ -174,24 +179,6 @@ class DatasetQC(object):
         self.config = df
         return df
 
-    @classmethod
-    def normalize_variable(cls, values, units, standard_name):
-        '''
-        Returns an array of values that are converted into a standard set of
-        units. The motivation behind this is so that we compare values of the
-        same units when performing QC.
-        '''
-        mapping = {
-            'sea_water_temperature': 'deg_C',
-            'sea_water_electrical_conductivity': 'S m-1',
-            'sea_water_salinity': '1',
-            'sea_water_practical_salinity': 'S m-1',
-            'sea_water_pressure': 'dbar',
-            'sea_water_density': 'kg m-3'
-        }
-        converted = Unit(units).convert(values, mapping[standard_name])
-        return converted
-
     def apply_qc(self, ncvariable):
         '''
         Applies QC to a qartod variable
@@ -243,8 +230,22 @@ class DatasetQC(object):
             mask |= times.mask
 
         values = ma.getdata(values[~mask])
-        values = self.normalize_variable(values, ncvariable.units, ncvariable.standard_name)
+        config = self.get_config(ncvariable.name)
+        if ncvariable.units != config.units:
+            values = Unit(ncvariable.units).convert(values, config.units)
         return times, values, mask
+
+    def get_config(self, variable):
+        '''
+        Returns a row of the config data frame for the station and variable
+        '''
+        station_name = self.find_station_name()
+        station_id = station_name.split(':')[-1]
+        rows = self.config[(self.config['station_id'] == station_id) &
+                           (self.config['variable'] == variable)]
+        if len(rows) > 0:
+            return rows.iloc[-1]
+        raise KeyError("No configuration found for %s and %s" % (station_id, variable))
 
     def apply_primary_qc(self, ncvariable):
         '''
