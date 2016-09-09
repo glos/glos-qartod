@@ -2,6 +2,7 @@
 '''
 glos_qartod/cli.py
 '''
+from __future__ import print_function
 from argparse import ArgumentParser
 from netCDF4 import Dataset
 from glos_qartod.qc import DatasetQC
@@ -18,7 +19,7 @@ def main():
 
     args = parser.parse_args()
     for nc_path in args.netcdf_files:
-        print nc_path
+        print(nc_path)
         with Dataset(nc_path, 'r+') as nc:
             run_qc(args.config, nc)
     sys.exit(0)

@@ -302,9 +302,9 @@ class DatasetQC(object):
         flat_line = {}
 
         if ('flat_line.low_reps' in config and not pd.isnull(config['flat_line.low_reps'])):
-            flat_line['low_reps'] = config['flat_line.low_reps']
+            flat_line['low_reps'] = int(config['flat_line.low_reps'])
         if ('flat_line.high_reps' in config and not pd.isnull(config['flat_line.high_reps'])):
-            flat_line['high_reps'] = config['flat_line.high_reps']
+            flat_line['high_reps'] = int(config['flat_line.high_reps'])
         if ('flat_line.epsilon' in config and not pd.isnull(config['flat_line.epsilon'])):
             flat_line['eps'] = config['flat_line.epsilon']
 
