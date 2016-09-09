@@ -22,6 +22,9 @@ setup(
     author='Luke Campbell',
     author_email='luke.campbell at rpsgroup.com',
     url='https://github.com/lukecampbell',
+    entry_points={
+        'console_scripts': ['glos-qartod=glos_qartod.cli:main']
+    },
     packages=find_packages(),
     install_requires=reqs,
     tests_require=['pytest'],

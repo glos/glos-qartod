@@ -9,15 +9,21 @@ from __future__ import unicode_literals
 from unittest import TestCase
 from glos_qartod.qc import DatasetQC
 from netCDF4 import Dataset
-from tests.resources import STATIC_FILES
+from tests.resources import STATIC_FILES, get_filename
 
 import numpy as np
+import os
 
 
 class TestQC(TestCase):
 
     def setUp(self):
         self.config_path = 'tests/data/GLOS-Climatologies.xlsx'
+
+    def reload_file(self):
+        os.remove(STATIC_FILES['leorgn'])
+        get_filename('tests/data/leorgn.nc')
+        assert os.path.exists(STATIC_FILES['leorgn'])
 
     def test_loading_config(self):
 
@@ -54,4 +60,15 @@ class TestQC(TestCase):
             times, values, mask = qc.get_unmasked(variable)
             np.testing.assert_allclose(values[:4], np.array([0.13, 0.12, 0.13, 0.08], dtype='f'))
 
+    def test_apply_qc(self):
+        self.addCleanup(self.reload_file)
+        with Dataset(STATIC_FILES['leorgn'], 'r+') as nc:
+            qc = DatasetQC(nc, self.config_path)
+            variable = nc.variables['blue_green_algae']
+
+            for qcvarname in qc.create_qc_variables(variable):
+                qcvar = nc.variables[qcvarname]
+                qc.apply_qc(qcvar)
+
+            qc.apply_primary_qc(variable)
 
