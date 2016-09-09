@@ -23,13 +23,6 @@ def get_filename(path):
 def generate_dataset(cdl_path, nc_path):
     subprocess.call(['ncgen', '-o', nc_path, cdl_path])
 
-
-def get_new_file(path):
-    cdl_path = path.replace('.nc', '.cdl')
-    generate_dataset(cdl_path, path)
-    return path
-
-
 STATIC_FILES = {
     'leorgn': get_filename('tests/data/leorgn.nc'),
 }

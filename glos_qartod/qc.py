@@ -193,12 +193,23 @@ class DatasetQC(object):
             'pressure': gliders_qc.pressure_check
         }
 
+        # If the qartod_test attribute isn't defined then this isn't a variable
+        # this script created and is not eligble for automatic QC
         qartod_test = getattr(ncvariable, 'qartod_test', None)
         if not qartod_test:
             return
+
+        # Get a reference to the parent variable using the standard_name attribute
         standard_name = getattr(ncvariable, 'standard_name').split(' ')[0]
         parent = self.ncfile.get_variables_by_attributes(standard_name=standard_name)[0]
-        test_params = self.config[standard_name][qartod_test]
+
+        test_params = self.get_test_params(parent.name)
+        # If there is no parameters defined for this test, don't apply QC
+        if qartod_test not in test_params:
+            return
+
+        test_params = test_params[qartod_test]
+
         if 'thresh_val' in test_params:
             test_params['thresh_val'] = test_params['thresh_val'] / pq.hour
 
@@ -235,9 +246,106 @@ class DatasetQC(object):
             values = Unit(ncvariable.units).convert(values, config.units)
         return times, values, mask
 
+    def get_gross_range_config(self, config):
+        '''
+        Returns a dictionary of test configuration parameters for the given config row
+
+        :param config: A row from the pandas dataframe representing the configuration
+        '''
+        gross_range = {}
+        if ('gross_range.sensor_min' in config and not pd.isnull(config['gross_range.sensor_min'])) and \
+           ('gross_range.sensor_max' in config and not pd.isnull(config['gross_range.sensor_max'])):
+            gross_range['sensor_span'] = [
+                config['gross_range.sensor_min'],
+                config['gross_range.sensor_max']
+            ]
+        if ('gross_range.user_min' in config and not pd.isnull(config['gross_range.user_min'])) and \
+           ('gross_range.user_max' in config and not pd.isnull(config['gross_range.user_max'])):
+            gross_range['user_span'] = [
+                config['gross_range.user_min'],
+                config['gross_range.user_max']
+            ]
+        return gross_range
+
+    def get_rate_of_change_config(self, config):
+        '''
+        Returns a dictionary of test configuration parameters for the given config row
+
+        :param config: A row from the pandas dataframe representing the configuration
+        '''
+        rate_of_change = {}
+        if ('rate_of_change.threshold' in config and not pd.isnull(config['rate_of_change.threshold'])):
+            rate_of_change['thresh_val'] = config['rate_of_change.threshold']
+        return rate_of_change
+
+    def get_spike_config(self, config):
+        '''
+        Returns a dictionary of test configuration parameters for the given config row
+
+        :param config: A row from the pandas dataframe representing the configuration
+        '''
+        spike = {}
+
+        if ('spike.low_threshold' in config and not pd.isnull(config['spike.low_threshold'])):
+            spike['low_thresh'] = config['spike.low_threshold']
+        if ('spike.high_threshold' in config and not pd.isnull(config['spike.high_threshold'])):
+            spike['high_thresh'] = config['spike.high_threshold']
+
+        return spike
+
+    def get_flat_line_config(self, config):
+        '''
+        Returns a dictionary of test configuration parameters for the given config row
+
+        :param config: A row from the pandas dataframe representing the configuration
+        '''
+        flat_line = {}
+
+        if ('flat_line.low_reps' in config and not pd.isnull(config['flat_line.low_reps'])):
+            flat_line['low_reps'] = config['flat_line.low_reps']
+        if ('flat_line.high_reps' in config and not pd.isnull(config['flat_line.high_reps'])):
+            flat_line['high_reps'] = config['flat_line.high_reps']
+        if ('flat_line.epsilon' in config and not pd.isnull(config['flat_line.epsilon'])):
+            flat_line['eps'] = config['flat_line.epsilon']
+
+        # Default epsilon value
+        if flat_line and 'eps' not in flat_line:
+            flat_line['eps'] = 1.1920929e-07
+
+        return flat_line
+
+    def get_test_params(self, variable):
+        '''
+        Returns a dictionary of test parameters based on configuration
+
+        :param netCDF4.Variable ncvariable: NCVariable
+        '''
+        config = self.get_config(variable)
+        test_params = {}
+
+        gross_range = self.get_gross_range_config(config)
+        if gross_range:
+            test_params['gross_range'] = gross_range
+
+        rate_of_change = self.get_rate_of_change_config(config)
+        if rate_of_change:
+            test_params['rate_of_change'] = rate_of_change
+
+        spike = self.get_spike_config(config)
+        if spike:
+            test_params['spike'] = spike
+
+        flat_line = self.get_flat_line_config(config)
+        if flat_line:
+            test_params['flat_line'] = flat_line
+
+        return test_params
+
     def get_config(self, variable):
         '''
         Returns a row of the config data frame for the station and variable
+
+        :param netCDF4.Variable ncvariable: NCVariable
         '''
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
