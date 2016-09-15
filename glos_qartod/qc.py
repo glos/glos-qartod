@@ -6,10 +6,12 @@ import numpy as np
 import numpy.ma as ma
 import quantities as pq
 import pandas as pd
+import json
 from cf_units import Unit
 from netCDF4 import num2date
 from ioos_qartod.qc_tests import qc
 from ioos_qartod.qc_tests import gliders as gliders_qc
+from glos_qartod import get_logger
 
 
 class DatasetQC(object):
@@ -25,8 +27,10 @@ class DatasetQC(object):
         variables = []
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
+        get_logger().info("Station ID: %s", station_id)
         local_config = self.config[self.config['station_id'] == station_id]
         configured_variables = local_config.variable.tolist()
+        get_logger().info("Configured variables: %s", ', '.join(configured_variables))
         for variable in self.ncfile.variables:
             if variable in configured_variables:
                 variables.append(variable)
@@ -175,6 +179,7 @@ class DatasetQC(object):
         '''
         Returns a dataframe loaded from the excel config file.
         '''
+        get_logger().info("Loading config %s", path)
         df = pd.read_excel(path, header=1)
         self.config = df
         return df
@@ -226,6 +231,8 @@ class DatasetQC(object):
             test_params['arr'] = values
 
         qc_flags = qc_tests[qartod_test](**test_params)
+        get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
+        get_logger().info("Total Values: %s", len(values))
         ncvariable[~mask] = qc_flags
 
     def get_unmasked(self, ncvariable):
@@ -242,8 +249,12 @@ class DatasetQC(object):
 
         values = ma.getdata(values[~mask])
         config = self.get_config(ncvariable.name)
+        units = getattr(ncvariable, 'units', '1')
+        # If units are not defined or empty, set them to unitless
+        if not units:
+            units = '1'
         if ncvariable.units != config.units:
-            values = Unit(ncvariable.units).convert(values, config.units)
+            values = Unit(units).convert(values, config.units)
         return times, values, mask
 
     def get_gross_range_config(self, config):
@@ -372,6 +383,8 @@ class DatasetQC(object):
         vectors = []
 
         for qc_variable in ancillary_variables:
+            if qc_variable == primary_qc_name:
+                continue
             ncvar = self.ncfile.variables[qc_variable]
             vectors.append(ma.getdata(ncvar[:]))
 

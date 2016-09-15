@@ -26,6 +26,7 @@ setup(
         'console_scripts': ['glos-qartod=glos_qartod.cli:main']
     },
     packages=find_packages(),
+    package_data={'glos_qartod': ['logging.json']},
     install_requires=reqs,
     tests_require=['pytest'],
     classifiers=[
