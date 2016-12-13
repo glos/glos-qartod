@@ -2,7 +2,6 @@
 '''
 glos_qartod/cli.py
 '''
-from __future__ import print_function
 from argparse import ArgumentParser
 from netCDF4 import Dataset
 from glos_qartod.qc import DatasetQC
@@ -13,6 +12,8 @@ import logging.config
 import pkg_resources
 import os
 import json
+from redis import StrictRedis
+import redis_lock
 
 
 def main():
@@ -21,18 +22,18 @@ def main():
     '''
     parser = ArgumentParser(description=main.__doc__)
     parser.add_argument('-c', '--config', help='Path to config YML file to use')
-    parser.add_argument('netcdf_files', nargs='+', help='NetCDF file to apply QC to')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Turn on logging')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Turn on logging')
+    parser.add_argument('netcdf_files', nargs='+',
+                        help='NetCDF file to apply QC to')
 
     args = parser.parse_args()
     if args.verbose:
         setup_logging()
     for nc_path in args.netcdf_files:
-        print(nc_path)
         with Dataset(nc_path, 'r+') as nc:
             run_qc(args.config, nc)
     sys.exit(0)
-
 
 def run_qc(config, ncfile):
     '''
@@ -49,16 +50,25 @@ def run_qc(config, ncfile):
         get_logger().info("Primary QC")
         qc.apply_primary_qc(ncvar)
 
+def run_qc_str(config, nc_path):
+    # take out a lock on the file being processed
+    with Dataset(nc_path, 'r+') as nc:
+        run_qc(config, nc)
 
-def setup_logging(
-    default_path=None,
-    default_level=logging.INFO,
-    env_key='LOG_CFG'
-):
-    """Setup logging configuration
+def run_qc_str_lock(config, nc_path):
+    conn = StrictRedis()
+    # take out a lock on the file being processed
+    with redis_lock.Lock(conn, "{}-lock".format(nc_path)):
+        with Dataset(nc_path, 'r+') as nc:
+            run_qc(config, nc)
 
+def setup_logging(default_path=None, default_level=logging.INFO,
+                  env_key='LOG_CFG'):
     """
-    path = default_path or pkg_resources.resource_filename('glos_qartod', 'logging.json')
+    Setup logging configuration
+    """
+    path = default_path or pkg_resources.resource_filename('glos_qartod',
+                                                           'logging.json')
     value = os.getenv(env_key, None)
     if value:
         path = value
@@ -72,4 +82,3 @@ def setup_logging(
 
 if __name__ == '__main__':
     main()
-

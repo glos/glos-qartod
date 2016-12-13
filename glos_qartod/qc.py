@@ -28,13 +28,11 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
-        local_config = self.config[self.config['station_id'] == station_id]
+        local_config = self.config[self.config['station_id'].astype(str) ==
+                                   station_id]
         configured_variables = local_config.variable.tolist()
         get_logger().info("Configured variables: %s", ', '.join(configured_variables))
-        for variable in self.ncfile.variables:
-            if variable in configured_variables:
-                variables.append(variable)
-        return variables
+        return set(configured_variables).intersection(self.ncfile.variables)
 
     def find_station_name(self):
         '''
@@ -180,7 +178,7 @@ class DatasetQC(object):
         Returns a dataframe loaded from the excel config file.
         '''
         get_logger().info("Loading config %s", path)
-        df = pd.read_excel(path, header=1)
+        df = pd.read_excel(path)
         self.config = df
         return df
 
@@ -209,7 +207,7 @@ class DatasetQC(object):
         parent = self.ncfile.get_variables_by_attributes(standard_name=standard_name)[0]
 
         test_params = self.get_test_params(parent.name)
-        # If there is no parameters defined for this test, don't apply QC
+        # If there are no parameters defined for this test, don't apply QC
         if qartod_test not in test_params:
             return
 
@@ -360,7 +358,7 @@ class DatasetQC(object):
         '''
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
-        rows = self.config[(self.config['station_id'] == station_id) &
+        rows = self.config[(self.config['station_id'].astype(str) == station_id) &
                            (self.config['variable'] == variable)]
         if len(rows) > 0:
             return rows.iloc[-1]
