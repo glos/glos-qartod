@@ -245,14 +245,24 @@ class DatasetQC(object):
         if hasattr(times, 'mask'):
             mask |= times.mask
 
-        values = ma.getdata(values[~mask])
+        values_initial = ma.getdata(values[~mask])
         config = self.get_config(ncvariable.name)
         units = getattr(ncvariable, 'units', '1')
         # If units are not defined or empty, set them to unitless
-        if not units:
+        # If the config units are empty, do not attempt to convert units
+        # The latter is necessary as some of the NetCDF files do not have
+        # units attribute under the udunits variable definitions
+        if not units or pd.isnull(config.units):
             units = '1'
-        if ncvariable.units != config.units:
-            values = Unit(units).convert(values, config.units)
+            values = values_initial
+        # must be a CF unit or this will throw an exception
+        elif ncvariable.units != config.units:
+            try:
+                values = Unit(units).convert(values_initial, config.units)
+            except ValueError as e:
+                exc_text = "Caught exception while converting units: {}".format(e)
+                get_logger().warn(exc_text)
+                values = initial_values
         return times, values, mask
 
     def get_gross_range_config(self, config):
