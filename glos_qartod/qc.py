@@ -218,9 +218,14 @@ class DatasetQC(object):
 
         times, values, mask = self.get_unmasked(parent)
 
-        if qartod_test == 'rate_of_change':
+        if qartod_test in ('rate_of_change', 'spike'):
             times = ma.getdata(times[~mask])
-            dates = np.array(num2date(times, self.ncfile.variables['time'].units), dtype='datetime64[ms]')
+            if times.size > 0:
+               dates = np.array(num2date(times,
+                                         self.ncfile.variables['time'].units),
+                                dtype='datetime64[ms]')
+            else:
+               dates = np.array([], dtype='datetime64[ms]')
             test_params['times'] = dates
 
         if qartod_test == 'pressure':
@@ -228,7 +233,11 @@ class DatasetQC(object):
         else:
             test_params['arr'] = values
 
-        qc_flags = qc_tests[qartod_test](**test_params)
+        if values.size > 0:
+           qc_flags = qc_tests[qartod_test](**test_params)
+        else:
+           qc_flags = np.array([], dtype=np.uint8)
+
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
         ncvariable[~mask] = qc_flags
