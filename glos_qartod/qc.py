@@ -92,6 +92,7 @@ class DatasetQC(object):
         standard_name = ncvariable.standard_name
         dims = ncvariable.dimensions
 
+        # STYLE: consider DRYing up
         templates = {
             'flat_line': {
                 'name': 'qartod_%(name)s_flat_line_flag',
@@ -271,7 +272,7 @@ class DatasetQC(object):
             except ValueError as e:
                 exc_text = "Caught exception while converting units: {}".format(e)
                 get_logger().warn(exc_text)
-                values = initial_values
+                values = values_initial
         return times, values, mask
 
     def get_gross_range_config(self, config):
