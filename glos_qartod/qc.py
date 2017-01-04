@@ -28,13 +28,11 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
-        local_config = self.config[self.config['station_id'] == station_id]
+        local_config = self.config[self.config['station_id'].astype(str) ==
+                                   station_id]
         configured_variables = local_config.variable.tolist()
         get_logger().info("Configured variables: %s", ', '.join(configured_variables))
-        for variable in self.ncfile.variables:
-            if variable in configured_variables:
-                variables.append(variable)
-        return variables
+        return set(configured_variables).intersection(self.ncfile.variables)
 
     def find_station_name(self):
         '''
@@ -94,6 +92,7 @@ class DatasetQC(object):
         standard_name = ncvariable.standard_name
         dims = ncvariable.dimensions
 
+        # STYLE: consider DRYing up
         templates = {
             'flat_line': {
                 'name': 'qartod_%(name)s_flat_line_flag',
@@ -180,7 +179,7 @@ class DatasetQC(object):
         Returns a dataframe loaded from the excel config file.
         '''
         get_logger().info("Loading config %s", path)
-        df = pd.read_excel(path, header=1)
+        df = pd.read_excel(path)
         self.config = df
         return df
 
@@ -209,7 +208,7 @@ class DatasetQC(object):
         parent = self.ncfile.get_variables_by_attributes(standard_name=standard_name)[0]
 
         test_params = self.get_test_params(parent.name)
-        # If there is no parameters defined for this test, don't apply QC
+        # If there are no parameters defined for this test, don't apply QC
         if qartod_test not in test_params:
             return
 
@@ -220,9 +219,14 @@ class DatasetQC(object):
 
         times, values, mask = self.get_unmasked(parent)
 
-        if qartod_test == 'rate_of_change':
+        if qartod_test in ('rate_of_change', 'spike'):
             times = ma.getdata(times[~mask])
-            dates = np.array(num2date(times, self.ncfile.variables['time'].units), dtype='datetime64[ms]')
+            if times.size > 0:
+               dates = np.array(num2date(times,
+                                         self.ncfile.variables['time'].units),
+                                dtype='datetime64[ms]')
+            else:
+               dates = np.array([], dtype='datetime64[ms]')
             test_params['times'] = dates
 
         if qartod_test == 'pressure':
@@ -230,7 +234,11 @@ class DatasetQC(object):
         else:
             test_params['arr'] = values
 
-        qc_flags = qc_tests[qartod_test](**test_params)
+        if values.size > 0:
+           qc_flags = qc_tests[qartod_test](**test_params)
+        else:
+           qc_flags = np.array([], dtype=np.uint8)
+
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
         ncvariable[~mask] = qc_flags
@@ -247,14 +255,24 @@ class DatasetQC(object):
         if hasattr(times, 'mask'):
             mask |= times.mask
 
-        values = ma.getdata(values[~mask])
+        values_initial = ma.getdata(values[~mask])
         config = self.get_config(ncvariable.name)
         units = getattr(ncvariable, 'units', '1')
         # If units are not defined or empty, set them to unitless
-        if not units:
+        # If the config units are empty, do not attempt to convert units
+        # The latter is necessary as some of the NetCDF files do not have
+        # units attribute under the udunits variable definitions
+        if not units or pd.isnull(config.units):
             units = '1'
-        if ncvariable.units != config.units:
-            values = Unit(units).convert(values, config.units)
+            values = values_initial
+        # must be a CF unit or this will throw an exception
+        elif ncvariable.units != config.units:
+            try:
+                values = Unit(units).convert(values_initial, config.units)
+            except ValueError as e:
+                exc_text = "Caught exception while converting units: {}".format(e)
+                get_logger().warn(exc_text)
+                values = values_initial
         return times, values, mask
 
     def get_gross_range_config(self, config):
@@ -360,7 +378,7 @@ class DatasetQC(object):
         '''
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
-        rows = self.config[(self.config['station_id'] == station_id) &
+        rows = self.config[(self.config['station_id'].astype(str) == station_id) &
                            (self.config['variable'] == variable)]
         if len(rows) > 0:
             return rows.iloc[-1]
