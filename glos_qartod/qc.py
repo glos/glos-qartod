@@ -28,9 +28,15 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
-        local_config = self.config[self.config['station_id'].astype(str) ==
-                                   station_id]
-        configured_variables = local_config.variable.tolist()
+        #local_config = self.config[self.config['station_id'].astype(str).isin({station_id, '*'})]
+        local_config = self.config[self.config['station_id'].astype(str) == station_id]
+        # get remaining "all" config
+        univ_config = self.config[(self.config['station_id'] == '*') & (~self.config['variable'].isin(local_config['variable']))]
+        # switch over to normal station ID
+        univ_config['station_id'] = station_id
+        config_all = pd.concat([local_config, univ_config])
+
+        configured_variables = config_all.variable.tolist()
         get_logger().info("Configured variables: %s", ', '.join(configured_variables))
         return set(configured_variables).intersection(self.ncfile.variables)
 
@@ -205,9 +211,11 @@ class DatasetQC(object):
         if not qartod_test:
             return
 
-        # Get a reference to the parent variable using the standard_name attribute
+        # Get a reference to the parent variable using the standard_name
+        # attribute
         standard_name = getattr(ncvariable, 'standard_name').split(' ')[0]
-        parent = self.ncfile.get_variables_by_attributes(standard_name=standard_name)[0]
+        parent = self.ncfile.get_variables_by_attributes(standard_name=\
+                                                         standard_name)[0]
 
         test_params = self.get_test_params(parent.name)
         # If there are no parameters defined for this test, don't apply QC
@@ -381,10 +389,16 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         rows = self.config[(self.config['station_id'].astype(str) == station_id) &
+                           (self.config['variable'] == variable) |
+                           (self.config['station_id'].astype(str) == '*') &
                            (self.config['variable'] == variable)]
-        if len(rows) > 0:
-            return rows.iloc[-1]
-        raise KeyError("No configuration found for %s and %s" % (station_id, variable))
+        dedup = rows.sort(['variable', 'station_id'], ascending=[True,
+                                         False]).drop_duplicates('variable')
+        dedup['station_id'] = station_id
+        if len(dedup) > 0:
+            return dedup.iloc[-1]
+        raise KeyError("No configuration found for %s and %s" % (station_id,
+                                                                 variable))
 
     def apply_primary_qc(self, ncvariable):
         '''
@@ -410,5 +424,3 @@ class DatasetQC(object):
 
         flags = qc.qc_compare(vectors)
         qcvar[:] = flags
-
-
