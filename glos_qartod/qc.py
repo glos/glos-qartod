@@ -71,8 +71,10 @@ class DatasetQC(object):
         '''
 
         ancillary_variables = getattr(parent, 'ancillary_variables', '').split(' ')
-        ancillary_variables.append(child.name)
-        parent.ancillary_variables = ' '.join(ancillary_variables)
+        # only add the ancillary variable name if it is not already present
+        if child.name not in ancillary_variables:
+            ancillary_variables.append(child.name)
+            parent.ancillary_variables = ' '.join(ancillary_variables)
 
     def needs_qc(self, ncvariable):
         '''
