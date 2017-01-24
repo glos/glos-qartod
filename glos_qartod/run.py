@@ -1,5 +1,6 @@
 import os
 import sys
+import glob
 import pandas as pd
 from redis import Redis
 from rq import Queue
@@ -45,26 +46,34 @@ def qc_subset(dir_root, conf, mappings):
                            qc_nn}
         # get any remapped directories for this variable name, or if none exist,
         # get the varaiable name as the target directory
-        dest_dir = os.path.join(dir_root, var_dir, station)
-        # TODO: runs multiple times, consider refactor.
-        if os.path.exists(dest_dir):
-            for root, subdir, fname in os.walk(dest_dir):
-                for nc_file in (f for f in fname if f.endswith('.nc')):
-                    # TODO: Add some sort of caching check.
-                    file_dest = os.path.join(root, nc_file)
-                    # check if all the variables already exist in the file
-                    ds = Dataset(file_dest)
-                    # if all of the variables for the expected QC variables
-                    # aren't present in the dataset, add the file to the list
-                    # of files to be QCed
-                    # sometimes naming conventions are inconsistent, so
-                    # check both the remapped version and the regular version
-                    if not (qc_varnames.issubset(ds.variables) or
-                            qc_varnames_bkp.issubset(ds.variables)):
-                        files.append(file_dest)
-        else:
-            # TODO: Add logging noting nonexistent directory
-            continue
+        # get the directory matching this station name or get all if * glob
+        # is used
+        station_dirs = glob.glob(os.path.join(dir_root, var_dir, station))
+        for dest_dir in station_dirs:
+            files.extend(find_files(dest_dir, qc_varnames, qc_varnames_bkp))
+
+    return set(files)
+
+
+def find_files(dest_dir, qc_varnames, qc_varnames_bkp):
+    files = []
+    if os.path.exists(dest_dir):
+        for root, subdir, fname in os.walk(dest_dir):
+            for nc_file in (f for f in fname if f.endswith('.nc')):
+                # TODO: Add some sort of caching check.
+                file_dest = os.path.join(root, nc_file)
+                # check if all the variables already exist in the file
+                ds = Dataset(file_dest)
+                # if all of the variables for the expected QC variables
+                # aren't present in the dataset, add the file to the list
+                # of files to be QCed
+                # sometimes naming conventions are inconsistent, so # check both the remapped version and the regular version
+                if not (qc_varnames.issubset(ds.variables) or
+                        qc_varnames_bkp.issubset(ds.variables)):
+                    files.append(file_dest)
+    else:
+        # TODO: Add logging noting nonexistent directory
+        pass
 
     return files
 

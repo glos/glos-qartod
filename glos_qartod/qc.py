@@ -33,7 +33,7 @@ class DatasetQC(object):
         # get remaining "all" config
         univ_config = self.config[(self.config['station_id'] == '*') & (~self.config['variable'].isin(local_config['variable']))]
         # switch over to normal station ID
-        univ_config['station_id'] = station_id
+        univ_config.loc[:, 'station_id'] = station_id
         config_all = pd.concat([local_config, univ_config])
 
         configured_variables = config_all.variable.tolist()
@@ -392,7 +392,7 @@ class DatasetQC(object):
                            (self.config['variable'] == variable) |
                            (self.config['station_id'].astype(str) == '*') &
                            (self.config['variable'] == variable)]
-        dedup = rows.sort(['variable', 'station_id'], ascending=[True,
+        dedup = rows.sort_values(['variable', 'station_id'], ascending=[True,
                                          False]).drop_duplicates('variable')
         dedup['station_id'] = station_id
         if len(dedup) > 0:
