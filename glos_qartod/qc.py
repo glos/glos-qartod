@@ -28,7 +28,6 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
-        #local_config = self.config[self.config['station_id'].astype(str).isin({station_id, '*'})]
         local_config = self.config[self.config['station_id'].astype(str) == station_id]
         # get remaining "all" config
         univ_config = self.config[(self.config['station_id'] == '*') & (~self.config['variable'].isin(local_config['variable']))]
@@ -245,13 +244,21 @@ class DatasetQC(object):
             test_params['arr'] = values
 
         if values.size > 0:
-           qc_flags = qc_tests[qartod_test](**test_params)
+            # Try to run the test.  If it fails, return an exception
+            try:
+                qc_flags = qc_tests[qartod_test](**test_params)
+            except Exception as e:
+                get_logger().error("QARTOD test application failed: %s", str(e))
+                return
+
+        # TODO: Ideally should handle zero length at the QARTOD level
         else:
            qc_flags = np.array([], dtype=np.uint8)
 
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
-        ncvariable[~mask] = qc_flags
+        # write any flags to non-missing data
+        ncvariable[~mask] = qc_flags[~mask]
 
     def get_unmasked(self, ncvariable):
         times = self.ncfile.variables['time'][:]
@@ -392,6 +399,8 @@ class DatasetQC(object):
                            (self.config['variable'] == variable) |
                            (self.config['station_id'].astype(str) == '*') &
                            (self.config['variable'] == variable)]
+        # prefer station specific variable configuration to generalized variable
+        # configuration, if it is available
         dedup = rows.sort_values(['variable', 'station_id'], ascending=[True,
                                          False]).drop_duplicates('variable')
         dedup['station_id'] = station_id
