@@ -68,6 +68,7 @@ def find_files(dest_dir, qc_varnames, qc_varnames_bkp):
                 # aren't present in the dataset, add the file to the list
                 # of files to be QCed
                 # sometimes naming conventions are inconsistent, so # check both the remapped version and the regular version
+                # FIXME: doesn't actually do anything with changes to NcML
                 if not (qc_varnames.issubset(ds.variables) or
                         qc_varnames_bkp.issubset(ds.variables)):
                     files.append(file_dest)

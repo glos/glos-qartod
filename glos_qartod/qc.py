@@ -6,18 +6,46 @@ import numpy as np
 import numpy.ma as ma
 import quantities as pq
 import pandas as pd
-import json
+from lxml import etree
 from cf_units import Unit
 from netCDF4 import num2date
 from ioos_qartod.qc_tests import qc
 from ioos_qartod.qc_tests import gliders as gliders_qc
 from glos_qartod import get_logger
 
+ns = {'ncml': "http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2"}
 
 class DatasetQC(object):
-    def __init__(self, ncfile, config_file):
+
+
+    ncml_template = """<?xml version="1.0" encoding="UTF-8"?>
+<netcdf xmlns="http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2">
+
+  <aggregation type="union">
+    <netcdf location="{}"/>
+    <netcdf location="{}"/>
+  </aggregation>
+</netcdf>"""
+
+    def __init__(self, ncfile, qc_file, ncml_filename, config):
         self.ncfile = ncfile
-        self.load_config(config_file)
+        self.qc_file = qc_file
+        self.ncml_filename = ncml_filename
+        # Look for existing qc_file or return None, signifying we'll create
+        # one later
+        try:
+            with open(self.ncml_filename, 'r') as ncml_contents:
+                self.ncml = etree.fromstring(self.contents.read())
+        except:
+            self.ncml = etree.fromstring(
+                        self.ncml_template.format(self.ncfile.filepath(),
+                                                    self.qc_file.filepath()))
+        self.ncml_write_flag = False
+        if isinstance(config, str):
+            self.load_config(config)
+        else:
+            self.config = config
+        self.ancillary_variables = {}
 
     def find_geophysical_variables(self):
         '''
@@ -57,9 +85,20 @@ class DatasetQC(object):
         :param netCDF4.Variable ncvariable: Variable to get the ancillary
                                             variables for
         '''
+
+        missing_var_template = """<variable name="{}">
+  <attribute name="ancillary_variables" value="" />
+</variable>""".format(ncvariable.name)
         valid_variables = []
-        ancillary_variables = getattr(ncvariable, 'ancillary_variables', '').split(' ')
-        for varname in ancillary_variables:
+        xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(ncvariable.name)
+        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        if anc_var_elem is None:
+            var = self.ncml.append(etree.fromstring(missing_var_template))
+            anc_vars = []
+            self.ncml_write_flag = True
+        else:
+            anc_vars = anc_var_elem.attrib['value']
+        for varname in anc_vars:
             # Skip the standard GliderDAC
             if varname == '%s_qc' % ncvariable.name:
                 continue
@@ -75,11 +114,25 @@ class DatasetQC(object):
         :param netCDF.Variable child: Status Flag Variable
         '''
 
-        ancillary_variables = getattr(parent, 'ancillary_variables', '').split(' ')
+        missing_var_template = """<variable name="{}">
+  <attribute name="ancillary_variables" value="" />
+</variable>""".format(parent.name)
+        xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(parent.name)
+        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        anc_vars = self.ncml.find(xpath_str, namespaces=ns)
+        # ugly
+        if anc_var_elem is None:
+            self.ncml.append(etree.fromstring(missing_var_template))
+            anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        anc_vars = anc_var_elem.attrib['value'].split(' ')
         # only add the ancillary variable name if it is not already present
-        if child.name not in ancillary_variables:
-            ancillary_variables.append(child.name)
-            parent.ancillary_variables = ' '.join(ancillary_variables)
+        if child.name not in anc_vars:
+            anc_vars.append(child.name)
+            # join vals together, but don't put a space after an empty value
+            anc_var_elem.set('value', ' '.join(v for v in anc_vars if v != ''))
+            # ancillary variables attribute will be modified,
+            # so set flag to write at end of operations
+            self.ncml_write_flag = True
 
     def needs_qc(self, ncvariable):
         '''
@@ -163,10 +216,10 @@ class DatasetQC(object):
                 continue
             variable_name = template['name'] % {'name': name}
 
-            if variable_name not in self.ncfile.variables:
-                ncvar = self.ncfile.createVariable(variable_name, np.int8, dims, fill_value=np.int8(9))
+            if variable_name not in self.qc_file.variables:
+                ncvar = self.qc_file.createVariable(variable_name, np.int8, dims, fill_value=np.int8(9))
             else:
-                ncvar = self.ncfile.variables[variable_name]
+                ncvar = self.qc_file.variables[variable_name]
 
             ncvar.units = '1'
             ncvar.standard_name = template['standard_name'] % {'standard_name': standard_name}
@@ -417,10 +470,10 @@ class DatasetQC(object):
         :param netCDF4.Variable ncvariable: NCVariable
         '''
         primary_qc_name = 'qartod_%s_primary_flag' % ncvariable.name
-        if primary_qc_name not in self.ncfile.variables:
+        if primary_qc_name not in self.qc_file.variables:
             return
 
-        qcvar = self.ncfile.variables[primary_qc_name]
+        qcvar = self.qc_file.variables[primary_qc_name]
 
         ancillary_variables = self.find_ancillary_variables(ncvariable)
         vectors = []
