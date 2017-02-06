@@ -6,6 +6,7 @@ from redis import Redis
 from rq import Queue
 from netCDF4 import Dataset
 from glos_qartod import cli
+from glos_qartod import get_logger
 
 
 def main():
@@ -60,21 +61,34 @@ def find_files(dest_dir, qc_varnames, qc_varnames_bkp):
     if os.path.exists(dest_dir):
         for root, subdir, fname in os.walk(dest_dir):
             for nc_file in (f for f in fname if f.endswith('.nc')):
-                # TODO: Add some sort of caching check.
                 file_dest = os.path.join(root, nc_file)
                 # check if all the variables already exist in the file
-                ds = Dataset(file_dest)
                 # if all of the variables for the expected QC variables
                 # aren't present in the dataset, add the file to the list
                 # of files to be QCed
-                # sometimes naming conventions are inconsistent, so # check both the remapped version and the regular version
-                # FIXME: doesn't actually do anything with changes to NcML
-                if not (qc_varnames.issubset(ds.variables) or
-                        qc_varnames_bkp.issubset(ds.variables)):
+
+                qc_filepath = file_dest.rsplit('.', 1)[0] + '.ncq'
+                # try to fetch the QC file's variable names.  If it does not
+                # exist, no QC has been applied and it must be created later
+                if os.path.exists(qc_filepath):
+                    try:
+                        with Dataset(qc_filepath) as f:
+                            qc_vars = f.variables.keys()
+                    # if for some reason we can't open the file,
+                    # note the exception and treat the qc variables as empty
+                    except Exception as e:
+                        get_logger().error('Failed to open file %s: %s',
+                                           qc_filepath, str(e))
+                        qc_vars = []
+                else:
+                    qc_vars = []
+                # check if all the QC variables exist in the file.
+                # if they don't, add them to the list of files to be processed
+                if not (qc_varnames.issubset(qc_vars) or
+                        qc_varnames_bkp.issubset(qc_vars)):
                     files.append(file_dest)
     else:
-        # TODO: Add logging noting nonexistent directory
-        pass
+        get_logger().warn("Directory '{}' does not exist but was referenced in config".format(dest_dir))
 
     return files
 
