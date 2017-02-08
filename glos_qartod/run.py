@@ -63,25 +63,32 @@ def find_files(dest_dir, qc_varnames, qc_varnames_bkp):
             # find all .nc files in this directory, check if there has been
             # qc applied to them, and create absolute paths to them
             # path to them
+            if not fname.endswith('.nc'):
+                continue
 
-            # higher order function to use in checking listcomp
-            def pred_fn(filepath):
-                return check_if_qc_vars_exist(os.path.join(root, filepath),
-                                              qc_varnames, qc_varnames_bkp)
-
-            nc_files.extend([os.path.join(root, f) for f in fname
-                             if f.endswith('.nc') and not pred_fn(root)])
+            full_path = os.path.join(root, fname)
+            if not check_if_qc_vars_exist(full_path, qc_varnames,
+                                          qc_varnames_bkp):
+                nc_files.append(full_path)
     else:
         get_logger().warn("Directory '{}' does not exist but was referenced in config".format(dest_dir))
 
     return nc_files
 
 def check_if_qc_vars_exist(file_path, qc_varnames, qc_varnames_bkp):
+    """
+    Checks that QC variables exist in the corresponding QC file based on
+    data file's filename.
+    Returns False if not all the QC variables are present, and True
+    if they are.
+    """
 
     qc_filepath = file_path.rsplit('.', 1)[0] + '.ncq'
     # try to fetch the QC file's variable names.  If it does not
     # exist, no QC has been applied and it must be created later
-    if os.path.exists(qc_filepath):
+    if not os.path.exists(qc_filepath):
+        return False
+    else:
         try:
             with Dataset(qc_filepath) as f:
                 qc_vars = f.variables.keys()
@@ -91,12 +98,9 @@ def check_if_qc_vars_exist(file_path, qc_varnames, qc_varnames_bkp):
                     qc_varnames_bkp.issubset(qc_vars))
         # if for some reason we can't open the file,
         # note the exception and treat the qc variables as empty
-        except Exception as e:
-            get_logger().error('Failed to open file %s: %s',
-                                qc_filepath, str(e))
+        except:
+            get_logger().exception('Failed to open file {}'.format(qc_filepath))
             return False
-    else:
-        return False
 
 if __name__ == '__main__':
     main()
