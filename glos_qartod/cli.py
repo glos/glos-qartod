@@ -16,6 +16,7 @@ import pandas as pd
 from lxml import etree
 from redis import StrictRedis
 import redis_lock
+from collections import OrderedDict
 
 
 def main():
@@ -34,17 +35,14 @@ def main():
         setup_logging()
     get_logger().info("Loading config %s", args.config)
     config = pd.read_excel(args.config)
-    run_qc_list(config, args.netcdf_files)
-
-def run_qc_list(config, nc_file_list):
-    for nc_path in nc_file_list:
-        with Dataset(nc_path, 'r') as nc:
+    for nc_file in args.netcdf_files:
+        with Dataset(nc_file, 'r') as nc:
             run_qc(config, nc)
 
-def open_and_qc(config, nc_path):
-    with Dataset(nc_path, 'r') as nc:
-        run_qc(config, nc)
 
+def extract_dimensions(od):
+    """Extract comparable information from netCDF4 dimension OrderedDict"""
+    return OrderedDict((v.name, v.size) for v in six.itervalues(od))
 
 def create_or_open_qc_file(qc_file_name, parent_dimensions):
     """
@@ -60,15 +58,15 @@ def create_or_open_qc_file(qc_file_name, parent_dimensions):
     if os.path.exists(qc_file_name):
         try:
             ncfile = Dataset(qc_file_name, 'a')
-            if ncfile.dimensions != parent_dimensions:
+            if (extract_dimensions(ncfile.dimensions) !=
+                extract_dimensions(parent_dimensions)):
                 raise ValueError("File {} had dimensional mismatch with original data dimensions, recreating QC file".format(qc_file_name))
             else:
                 return ncfile
             # if an exception is returned, log it and fall through to write the
             # QC file from scratch
-        except Exception as e:
-            ncfile.close()
-            get_logger().warning(str(e))
+        except:
+            get_logger().exception("Error during handling of QC file")
 
     # if we reached here, either the qc file didn't exist or ran into an error
     # while trying to be opened, so attempt to create the file from scratch
@@ -83,13 +81,21 @@ def create_or_open_qc_file(qc_file_name, parent_dimensions):
 
 
 
-def run_qc(config, ncfile, qc_suffix=None):
+def run_qc(config, ncfile, qc_extension='ncq'):
     '''
     Runs QC on a netCDF file
+
+    Takes a path to an Excel file to be read or pandas DataFrame containing
+    QC configuration and applies the QC to the file at `filepath`.
+    Creates a file with the same base name as filepath, but with the file
+    extension specified by `qc_extension`.
+
+    :param config: str or pandas.DataFrame
+    :param ncfile: netCDF4.Dataset
+    :param qc_extension: str
     '''
-    qc_end = 'ncq' if qc_suffix is None else qc_suffix
-    fname_base, ext = os.path.splitext(ncfile.filepath())
-    qc_filename = fname_base + '.{}'.format(qc_end)
+    fname_base = ncfile.filepath().rsplit('.', 1)[0]
+    qc_filename = "{}.{}".format(fname_base, qc_extension)
     # Look for existing qc_file or return new one
     qc_file = create_or_open_qc_file(qc_filename, ncfile.dimensions)
     # load NcML aggregation if it exists
@@ -97,7 +103,7 @@ def run_qc(config, ncfile, qc_suffix=None):
     qc = DatasetQC(ncfile, qc_file, ncml_filename, config)
     # zero length times will throw an IndexError in the netCDF interface,
     # and won't result in any QC being applied anyways, so skip them if present
-    if len(qc.ncfile.variables['time']) > 0:
+    if qc.ncfile.variables['time'].size > 0:
         for varname in qc.find_geophysical_variables():
             get_logger().info("Applying QC to %s", varname)
             ncvar = ncfile.variables[varname]
@@ -114,12 +120,28 @@ def run_qc(config, ncfile, qc_suffix=None):
     qc_file.close()
 
 
-def run_qc_str(config, nc_path):
+def run_qc_str(config, nc_path, qc_extension='ncq'):
+    """
+    Helper function to run_qc.  Mainly used to pass jobs off from redis.
+
+    :param config: str or pandas.DataFrame
+    :param nc_path: str
+    :param qc_extension: str
+    """
     # take out a lock on the file being processed
     with Dataset(nc_path, 'r') as nc:
-        run_qc(config, nc)
+        run_qc(config, nc, qc_extension)
 
 def run_qc_str_lock(config, nc_path):
+    """
+    Helper function to run_qc.  Mainly used to pass jobs off from redis.
+    Also takes out a lock in redis to avoid possibly starting multiple jobs
+    and causing race conditions.
+
+    :param config: str or pandas.DataFrame
+    :param nc_path: str
+    :param qc_extension: str
+    """
     conn = StrictRedis()
     # take out a lock on the file being processed
     with redis_lock.Lock(conn, "{}-lock".format(nc_path)):

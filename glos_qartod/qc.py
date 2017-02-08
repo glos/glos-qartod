@@ -17,7 +17,6 @@ ns = {'ncml': "http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2"}
 
 class DatasetQC(object):
 
-
     ncml_template = """<?xml version="1.0" encoding="UTF-8"?>
 <netcdf xmlns="http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2">
 
@@ -27,6 +26,11 @@ class DatasetQC(object):
   </aggregation>
 </netcdf>"""
 
+    missing_var_template = """<variable name="{}">
+    <attribute name="ancillary_variables" value="" />
+</variable>"""
+
+
     def __init__(self, ncfile, qc_file, ncml_filename, config):
         self.ncfile = ncfile
         self.qc_file = qc_file
@@ -35,7 +39,7 @@ class DatasetQC(object):
         # one later
         try:
             with open(self.ncml_filename, 'r') as ncml_contents:
-                self.ncml = etree.fromstring(self.contents.read())
+                self.ncml = etree.fromstring(ncml_contents.read())
         except:
             self.ncml = etree.fromstring(
                         self.ncml_template.format(self.ncfile.filepath(),
@@ -73,9 +77,31 @@ class DatasetQC(object):
         '''
         platform_name = self.ncfile.platform
         if platform_name not in self.ncfile.variables:
-            raise ValueError("Platform defined as %s but no variable matches this name" % platform_name)
+            raise ValueError("Platform defined as {} but no variable matches this name".format(platform_name))
         station_id = self.ncfile.variables[platform_name].ioos_code
         return station_id
+
+    def create_or_find_variable_element(self, varname):
+        """
+        Finds an NcML variable element with nested attribute element containing
+        ancillary variables.  Returns a lxml element
+        """
+
+        xpath_str = './/ncml:variable[@name="{}"]/ncml:attribute[@name="ancillary_variables"]'.format(varname)
+        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        # ugly, but I'm not sure why namespaces are being handled differently
+        # when reading versus writing
+        # correctly
+        if anc_var_elem is None:
+            xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(varname)
+            anc_var_elem = self.ncml.find(xpath_str)
+        if anc_var_elem is None:
+            # if the element doesn't exist, create it
+            self.ncml.append(etree.fromstring(
+                self.missing_var_template.format(varname)))
+            self.ncml_write_flag = True
+            anc_var_elem = self.ncml.find(xpath_str)
+        return anc_var_elem
 
     def find_ancillary_variables(self, ncvariable):
         '''
@@ -86,18 +112,9 @@ class DatasetQC(object):
                                             variables for
         '''
 
-        missing_var_template = """<variable name="{}">
-  <attribute name="ancillary_variables" value="" />
-</variable>""".format(ncvariable.name)
         valid_variables = []
-        xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(ncvariable.name)
-        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
-        if anc_var_elem is None:
-            var = self.ncml.append(etree.fromstring(missing_var_template))
-            anc_vars = []
-            self.ncml_write_flag = True
-        else:
-            anc_vars = anc_var_elem.attrib['value']
+        anc_var_elem = self.create_or_find_variable_element(ncvariable.name)
+        anc_vars = anc_var_elem.attrib['value'].split(' ')
         for varname in anc_vars:
             # Skip the standard GliderDAC
             if varname == '%s_qc' % ncvariable.name:
@@ -114,16 +131,7 @@ class DatasetQC(object):
         :param netCDF.Variable child: Status Flag Variable
         '''
 
-        missing_var_template = """<variable name="{}">
-  <attribute name="ancillary_variables" value="" />
-</variable>""".format(parent.name)
-        xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(parent.name)
-        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
-        anc_vars = self.ncml.find(xpath_str, namespaces=ns)
-        # ugly
-        if anc_var_elem is None:
-            self.ncml.append(etree.fromstring(missing_var_template))
-            anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        anc_var_elem = self.create_or_find_variable_element(parent.name)
         anc_vars = anc_var_elem.attrib['value'].split(' ')
         # only add the ancillary variable name if it is not already present
         if child.name not in anc_vars:
@@ -300,11 +308,9 @@ class DatasetQC(object):
             # Try to run the test.  If it fails, return an exception
             try:
                 qc_flags = qc_tests[qartod_test](**test_params)
-            except Exception as e:
-                get_logger().error("QARTOD test application failed: %s", str(e))
+            except:
+                get_logger().exception("QARTOD test application failed.")
                 return
-
-        # TODO: Ideally should handle zero length at the QARTOD level
         else:
            qc_flags = np.array([], dtype=np.uint8)
 
@@ -448,18 +454,21 @@ class DatasetQC(object):
         '''
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
+        # find any station specific as well as station-wide ('*') config rows
         rows = self.config[(self.config['station_id'].astype(str) == station_id) &
                            (self.config['variable'] == variable) |
                            (self.config['station_id'].astype(str) == '*') &
                            (self.config['variable'] == variable)]
         # prefer station specific variable configuration to generalized variable
-        # configuration, if it is available
+        # configuration, if it is available.  '*' sorts before alphanumericals,
+        # so use reverse sorting order for the station id so that individual
+        # stations get chosen first
         dedup = rows.sort_values(['variable', 'station_id'], ascending=[True,
                                          False]).drop_duplicates('variable')
         dedup['station_id'] = station_id
         if len(dedup) > 0:
             return dedup.iloc[-1]
-        raise KeyError("No configuration found for %s and %s" % (station_id,
+        raise KeyError("No configuration found for station {} and variable {}.".format(station_id,
                                                                  variable))
 
     def apply_primary_qc(self, ncvariable):
