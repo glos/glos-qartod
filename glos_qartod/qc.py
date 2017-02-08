@@ -119,7 +119,7 @@ class DatasetQC(object):
             # Skip the standard GliderDAC
             if varname == '%s_qc' % ncvariable.name:
                 continue
-            if varname in self.ncfile.variables:
+            if varname in self.qc_file.variables:
                 valid_variables.append(varname)
         return valid_variables
 
@@ -490,7 +490,7 @@ class DatasetQC(object):
         for qc_variable in ancillary_variables:
             if qc_variable == primary_qc_name:
                 continue
-            ncvar = self.ncfile.variables[qc_variable]
+            ncvar = self.qc_file.variables[qc_variable]
             vectors.append(ma.getdata(ncvar[:]))
 
         flags = qc.qc_compare(vectors)
