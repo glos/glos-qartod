@@ -12,6 +12,7 @@ from netCDF4 import num2date
 from ioos_qartod.qc_tests import qc
 from ioos_qartod.qc_tests import gliders as gliders_qc
 from glos_qartod import get_logger
+from os.path import basename
 
 ns = {'ncml': "http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2"}
 
@@ -42,8 +43,8 @@ class DatasetQC(object):
                 self.ncml = etree.fromstring(ncml_contents.read())
         except:
             self.ncml = etree.fromstring(
-                        self.ncml_template.format(self.ncfile.filepath(),
-                                                    self.qc_file.filepath()))
+                        self.ncml_template.format(basename(self.ncfile.filepath()),
+                                                  basename(self.qc_file.filepath())))
         self.ncml_write_flag = False
         if isinstance(config, str):
             self.load_config(config)
