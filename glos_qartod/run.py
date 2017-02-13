@@ -1,10 +1,12 @@
 import os
 import sys
+import glob
 import pandas as pd
 from redis import Redis
 from rq import Queue
 from netCDF4 import Dataset
 from glos_qartod import cli
+from glos_qartod import get_logger
 
 
 def main():
@@ -45,29 +47,60 @@ def qc_subset(dir_root, conf, mappings):
                            qc_nn}
         # get any remapped directories for this variable name, or if none exist,
         # get the varaiable name as the target directory
-        dest_dir = os.path.join(dir_root, var_dir, station)
-        # TODO: runs multiple times, consider refactor.
-        if os.path.exists(dest_dir):
-            for root, subdir, fname in os.walk(dest_dir):
-                for nc_file in (f for f in fname if f.endswith('.nc')):
-                    # TODO: Add some sort of caching check.
-                    file_dest = os.path.join(root, nc_file)
-                    # check if all the variables already exist in the file
-                    ds = Dataset(file_dest)
-                    # if all of the variables for the expected QC variables
-                    # aren't present in the dataset, add the file to the list
-                    # of files to be QCed
-                    # sometimes naming conventions are inconsistent, so
-                    # check both the remapped version and the regular version
-                    if not (qc_varnames.issubset(ds.variables) or
-                            qc_varnames_bkp.issubset(ds.variables)):
-                        files.append(file_dest)
-        else:
-            # TODO: Add logging noting nonexistent directory
-            continue
+        # get the directory matching this station name or get all if * glob
+        # is used
+        station_dirs = glob.glob(os.path.join(dir_root, var_dir, station))
+        for dest_dir in station_dirs:
+            files.extend(find_files(dest_dir, qc_varnames, qc_varnames_bkp))
 
-    return files
+    return set(files)
 
+
+def find_files(dest_dir, qc_varnames, qc_varnames_bkp):
+    nc_files = []
+    if os.path.exists(dest_dir):
+        for root, subdir, fname in os.walk(dest_dir):
+            # find all .nc files in this directory, check if there has been
+            # qc applied to them, and create absolute paths to them
+            # path to them
+            if not fname.endswith('.nc'):
+                continue
+
+            full_path = os.path.join(root, fname)
+            if not check_if_qc_vars_exist(full_path, qc_varnames,
+                                          qc_varnames_bkp):
+                nc_files.append(full_path)
+    else:
+        get_logger().warn("Directory '{}' does not exist but was referenced in config".format(dest_dir))
+
+    return nc_files
+
+def check_if_qc_vars_exist(file_path, qc_varnames, qc_varnames_bkp):
+    """
+    Checks that QC variables exist in the corresponding QC file based on
+    data file's filename.
+    Returns False if not all the QC variables are present, and True
+    if they are.
+    """
+
+    qc_filepath = file_path.rsplit('.', 1)[0] + '.ncq'
+    # try to fetch the QC file's variable names.  If it does not
+    # exist, no QC has been applied and it must be created later
+    if not os.path.exists(qc_filepath):
+        return False
+    else:
+        try:
+            with Dataset(qc_filepath) as f:
+                qc_vars = f.variables.keys()
+            # check if all the QC variables exist in the file.
+            # if they don't, add them to the list of files to be processed
+            return (qc_varnames.issubset(qc_vars) or
+                    qc_varnames_bkp.issubset(qc_vars))
+        # if for some reason we can't open the file,
+        # note the exception and treat the qc variables as empty
+        except:
+            get_logger().exception('Failed to open file {}'.format(qc_filepath))
+            return False
 
 if __name__ == '__main__':
     main()

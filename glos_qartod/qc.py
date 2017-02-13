@@ -6,18 +6,51 @@ import numpy as np
 import numpy.ma as ma
 import quantities as pq
 import pandas as pd
-import json
+from lxml import etree
 from cf_units import Unit
 from netCDF4 import num2date
 from ioos_qartod.qc_tests import qc
 from ioos_qartod.qc_tests import gliders as gliders_qc
 from glos_qartod import get_logger
+from os.path import basename
 
+ns = {'ncml': "http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2"}
 
 class DatasetQC(object):
-    def __init__(self, ncfile, config_file):
+
+    ncml_template = """<?xml version="1.0" encoding="UTF-8"?>
+<netcdf xmlns="http://www.unidata.ucar.edu/namespaces/netcdf/ncml-2.2">
+
+  <aggregation type="union">
+    <netcdf location="{}"/>
+    <netcdf location="{}"/>
+  </aggregation>
+</netcdf>"""
+
+    missing_var_template = """<variable name="{}">
+    <attribute name="ancillary_variables" value="" />
+</variable>"""
+
+
+    def __init__(self, ncfile, qc_file, ncml_filename, config):
         self.ncfile = ncfile
-        self.load_config(config_file)
+        self.qc_file = qc_file
+        self.ncml_filename = ncml_filename
+        # Look for existing qc_file or return None, signifying we'll create
+        # one later
+        try:
+            with open(self.ncml_filename, 'r') as ncml_contents:
+                self.ncml = etree.fromstring(ncml_contents.read())
+        except:
+            self.ncml = etree.fromstring(
+                        self.ncml_template.format(basename(self.ncfile.filepath()),
+                                                  basename(self.qc_file.filepath())))
+        self.ncml_write_flag = False
+        if isinstance(config, str):
+            self.load_config(config)
+        else:
+            self.config = config
+        self.ancillary_variables = {}
 
     def find_geophysical_variables(self):
         '''
@@ -28,9 +61,14 @@ class DatasetQC(object):
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
         get_logger().info("Station ID: %s", station_id)
-        local_config = self.config[self.config['station_id'].astype(str) ==
-                                   station_id]
-        configured_variables = local_config.variable.tolist()
+        local_config = self.config[self.config['station_id'].astype(str) == station_id]
+        # get remaining "all" config
+        univ_config = self.config[(self.config['station_id'] == '*') & (~self.config['variable'].isin(local_config['variable']))]
+        # switch over to normal station ID
+        univ_config.loc[:, 'station_id'] = station_id
+        config_all = pd.concat([local_config, univ_config])
+
+        configured_variables = config_all.variable.tolist()
         get_logger().info("Configured variables: %s", ', '.join(configured_variables))
         return set(configured_variables).intersection(self.ncfile.variables)
 
@@ -40,9 +78,31 @@ class DatasetQC(object):
         '''
         platform_name = self.ncfile.platform
         if platform_name not in self.ncfile.variables:
-            raise ValueError("Platform defined as %s but no variable matches this name" % platform_name)
+            raise ValueError("Platform defined as {} but no variable matches this name".format(platform_name))
         station_id = self.ncfile.variables[platform_name].ioos_code
         return station_id
+
+    def create_or_find_variable_element(self, varname):
+        """
+        Finds an NcML variable element with nested attribute element containing
+        ancillary variables.  Returns a lxml element
+        """
+
+        xpath_str = './/ncml:variable[@name="{}"]/ncml:attribute[@name="ancillary_variables"]'.format(varname)
+        anc_var_elem = self.ncml.find(xpath_str, namespaces=ns)
+        # ugly, but I'm not sure why namespaces are being handled differently
+        # when reading versus writing
+        # correctly
+        if anc_var_elem is None:
+            xpath_str = './/variable[@name="{}"]/attribute[@name="ancillary_variables"]'.format(varname)
+            anc_var_elem = self.ncml.find(xpath_str)
+        if anc_var_elem is None:
+            # if the element doesn't exist, create it
+            self.ncml.append(etree.fromstring(
+                self.missing_var_template.format(varname)))
+            self.ncml_write_flag = True
+            anc_var_elem = self.ncml.find(xpath_str)
+        return anc_var_elem
 
     def find_ancillary_variables(self, ncvariable):
         '''
@@ -52,13 +112,15 @@ class DatasetQC(object):
         :param netCDF4.Variable ncvariable: Variable to get the ancillary
                                             variables for
         '''
+
         valid_variables = []
-        ancillary_variables = getattr(ncvariable, 'ancillary_variables', '').split(' ')
-        for varname in ancillary_variables:
+        anc_var_elem = self.create_or_find_variable_element(ncvariable.name)
+        anc_vars = anc_var_elem.attrib['value'].split(' ')
+        for varname in anc_vars:
             # Skip the standard GliderDAC
             if varname == '%s_qc' % ncvariable.name:
                 continue
-            if varname in self.ncfile.variables:
+            if varname in self.qc_file.variables:
                 valid_variables.append(varname)
         return valid_variables
 
@@ -70,9 +132,16 @@ class DatasetQC(object):
         :param netCDF.Variable child: Status Flag Variable
         '''
 
-        ancillary_variables = getattr(parent, 'ancillary_variables', '').split(' ')
-        ancillary_variables.append(child.name)
-        parent.ancillary_variables = ' '.join(ancillary_variables)
+        anc_var_elem = self.create_or_find_variable_element(parent.name)
+        anc_vars = anc_var_elem.attrib['value'].split(' ')
+        # only add the ancillary variable name if it is not already present
+        if child.name not in anc_vars:
+            anc_vars.append(child.name)
+            # join vals together, but don't put a space after an empty value
+            anc_var_elem.set('value', ' '.join(v for v in anc_vars if v != ''))
+            # ancillary variables attribute will be modified,
+            # so set flag to write at end of operations
+            self.ncml_write_flag = True
 
     def needs_qc(self, ncvariable):
         '''
@@ -156,10 +225,10 @@ class DatasetQC(object):
                 continue
             variable_name = template['name'] % {'name': name}
 
-            if variable_name not in self.ncfile.variables:
-                ncvar = self.ncfile.createVariable(variable_name, np.int8, dims, fill_value=np.int8(9))
+            if variable_name not in self.qc_file.variables:
+                ncvar = self.qc_file.createVariable(variable_name, np.int8, dims, fill_value=np.int8(9))
             else:
-                ncvar = self.ncfile.variables[variable_name]
+                ncvar = self.qc_file.variables[variable_name]
 
             ncvar.units = '1'
             ncvar.standard_name = template['standard_name'] % {'standard_name': standard_name}
@@ -203,9 +272,11 @@ class DatasetQC(object):
         if not qartod_test:
             return
 
-        # Get a reference to the parent variable using the standard_name attribute
+        # Get a reference to the parent variable using the standard_name
+        # attribute
         standard_name = getattr(ncvariable, 'standard_name').split(' ')[0]
-        parent = self.ncfile.get_variables_by_attributes(standard_name=standard_name)[0]
+        parent = self.ncfile.get_variables_by_attributes(standard_name=\
+                                                         standard_name)[0]
 
         test_params = self.get_test_params(parent.name)
         # If there are no parameters defined for this test, don't apply QC
@@ -235,13 +306,19 @@ class DatasetQC(object):
             test_params['arr'] = values
 
         if values.size > 0:
-           qc_flags = qc_tests[qartod_test](**test_params)
+            # Try to run the test.  If it fails, return an exception
+            try:
+                qc_flags = qc_tests[qartod_test](**test_params)
+            except:
+                get_logger().exception("QARTOD test application failed.")
+                return
         else:
            qc_flags = np.array([], dtype=np.uint8)
 
         get_logger().info("Flagged: %s", len(np.where(qc_flags == 4)[0]))
         get_logger().info("Total Values: %s", len(values))
-        ncvariable[~mask] = qc_flags
+        # write any flags to non-missing data
+        ncvariable[~mask] = qc_flags[~mask]
 
     def get_unmasked(self, ncvariable):
         times = self.ncfile.variables['time'][:]
@@ -378,11 +455,22 @@ class DatasetQC(object):
         '''
         station_name = self.find_station_name()
         station_id = station_name.split(':')[-1]
+        # find any station specific as well as station-wide ('*') config rows
         rows = self.config[(self.config['station_id'].astype(str) == station_id) &
+                           (self.config['variable'] == variable) |
+                           (self.config['station_id'].astype(str) == '*') &
                            (self.config['variable'] == variable)]
-        if len(rows) > 0:
-            return rows.iloc[-1]
-        raise KeyError("No configuration found for %s and %s" % (station_id, variable))
+        # prefer station specific variable configuration to generalized variable
+        # configuration, if it is available.  '*' sorts before alphanumericals,
+        # so use reverse sorting order for the station id so that individual
+        # stations get chosen first
+        dedup = rows.sort_values(['variable', 'station_id'], ascending=[True,
+                                         False]).drop_duplicates('variable')
+        dedup['station_id'] = station_id
+        if len(dedup) > 0:
+            return dedup.iloc[-1]
+        raise KeyError("No configuration found for station {} and variable {}.".format(station_id,
+                                                                 variable))
 
     def apply_primary_qc(self, ncvariable):
         '''
@@ -392,10 +480,10 @@ class DatasetQC(object):
         :param netCDF4.Variable ncvariable: NCVariable
         '''
         primary_qc_name = 'qartod_%s_primary_flag' % ncvariable.name
-        if primary_qc_name not in self.ncfile.variables:
+        if primary_qc_name not in self.qc_file.variables:
             return
 
-        qcvar = self.ncfile.variables[primary_qc_name]
+        qcvar = self.qc_file.variables[primary_qc_name]
 
         ancillary_variables = self.find_ancillary_variables(ncvariable)
         vectors = []
@@ -403,10 +491,8 @@ class DatasetQC(object):
         for qc_variable in ancillary_variables:
             if qc_variable == primary_qc_name:
                 continue
-            ncvar = self.ncfile.variables[qc_variable]
+            ncvar = self.qc_file.variables[qc_variable]
             vectors.append(ma.getdata(ncvar[:]))
 
         flags = qc.qc_compare(vectors)
         qcvar[:] = flags
-
-
